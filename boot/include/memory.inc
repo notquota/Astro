@@ -1,0 +1,11 @@
+%ifndef A5TR0_MEMORY_INC
+%define A5TR0_MEMORY_INC
+
+%define E820_SIGNATURE    0x534D4150
+%define E820_ENTRY_SIZE   24
+%define E820_MAX_ENTRIES  128
+
+%define E820_BUFFER       0x5000
+%define E820_TYPE_USABLE  1
+
+%endif
