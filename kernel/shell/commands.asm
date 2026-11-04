@@ -98,6 +98,41 @@ commands_dispatch:
     test eax, eax
     jnz .type
 
+    mov rsi, cmd_net
+    call commands_match
+    test eax, eax
+    jnz .net
+
+    mov rsi, cmd_wlan
+    call commands_match
+    test eax, eax
+    jnz .wlan
+
+    mov rsi, cmd_ping
+    call commands_match
+    test eax, eax
+    jnz .ping
+
+    mov rsi, cmd_arp
+    call commands_match
+    test eax, eax
+    jnz .arp
+
+    mov rsi, cmd_tcp
+    call commands_match
+    test eax, eax
+    jnz .tcp
+
+    mov rsi, cmd_nslookup
+    call commands_match
+    test eax, eax
+    jnz .nslookup
+
+    mov rsi, cmd_wf
+    call commands_match
+    test eax, eax
+    jnz .wf
+
     mov rsi, msg_unknown
     call commands_error
     jmp .done
@@ -110,6 +145,21 @@ commands_dispatch:
     call commands_print
 
     mov rsi, msg_help3
+    call commands_print
+
+    mov rsi, msg_help_network
+    call commands_print
+
+    mov rsi, msg_help_ping
+    call commands_print
+
+    mov rsi, msg_help_tcp
+    call commands_print
+
+    mov rsi, msg_help_web
+    call commands_print
+
+    mov rsi, msg_help_wifi
     call commands_print
     jmp .done
 
@@ -151,6 +201,7 @@ commands_dispatch:
 
     mov rax, r12
     shl rax, 5
+
     lea rbx, [fs_entries + rax]
 
     cmp byte [rbx], 1
@@ -166,7 +217,7 @@ commands_dispatch:
     inc r14d
 
 .list_skip:
-    inc r12
+    inc r12d
     jmp .list_next
 
 .list_done:
@@ -182,16 +233,20 @@ commands_dispatch:
     je .missing_arg
 
     mov rdi, r13
+    mov rsi, cmd_home
+    call fs_equal
+    test eax, eax
+    jnz .cd_home
+
+    mov rdi, r13
     mov rsi, cmd_root
     call fs_equal
-
     test eax, eax
     jnz .cd_root
 
     mov rdi, r13
     mov rsi, cmd_parent
     call fs_equal
-
     test eax, eax
     jnz .cd_parent
 
@@ -211,8 +266,17 @@ commands_dispatch:
     call commands_print
     jmp .done
 
+.cd_home:
+    mov byte [fs_cwd], 0
+    mov byte [shell_testing_mode], 1
+
+    mov rsi, msg_testing_enabled
+    call commands_print
+    jmp .done
+
 .cd_root:
     mov byte [fs_cwd], 0
+    mov byte [shell_testing_mode], 0
 
     mov rsi, msg_directory_changed
     call commands_print
@@ -221,15 +285,16 @@ commands_dispatch:
 .cd_parent:
     movzx edi, byte [fs_cwd]
     test edi, edi
-    jz .cd_root
+    jz .cd_parent_done
 
     call fs_get
     test rax, rax
-    jz .cd_root
+    jz .cd_parent_done
 
     mov al, [rax + 2]
     mov [fs_cwd], al
 
+.cd_parent_done:
     mov rsi, msg_directory_changed
     call commands_print
     jmp .done
@@ -266,7 +331,19 @@ commands_dispatch:
     test rax, rax
     jz .create_failed
 
+    jmp .touch_done
+
 .touch_existing:
+    mov rdi, rax
+    call fs_get
+
+    test rax, rax
+    jz .not_found
+
+    cmp byte [rax + 1], FS_TYPE_FILE
+    jne .not_file
+
+.touch_done:
     mov rsi, msg_created
     call commands_print
     jmp .done
@@ -337,6 +414,135 @@ commands_dispatch:
     call commands_print
     jmp .done
 
+.net:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    mov rdi, r13
+    call network_command
+    jmp .done
+
+.wlan:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    mov rdi, r13
+    call wifi_command
+    jmp .done
+
+.ping:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    cmp byte [r13], 0
+    je .missing_arg
+
+    mov rdi, r13
+    call icmp_start
+
+    test eax, eax
+    jz .ping_failed
+
+    mov rsi, msg_ping_started
+    call commands_print
+    jmp .done
+
+.ping_failed:
+    mov rsi, msg_ping_failed
+    call commands_error
+    jmp .done
+
+.arp:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    mov rdi, r13
+    mov rsi, cmd_show
+    call fs_equal
+
+    test eax, eax
+    jz .arp_usage
+
+    cmp byte [arp_found], 1
+    jne .arp_empty
+
+    mov rsi, msg_arp_found
+    call commands_print
+
+    mov rsi, msg_arp_mac
+    call shell_puts
+
+    lea rdi, [arp_peer_mac]
+    call network_print_mac_at
+    jmp .done
+
+.arp_empty:
+    mov rsi, msg_arp_empty
+    call commands_print
+    jmp .done
+
+.arp_usage:
+    mov rsi, msg_arp_usage
+    call commands_error
+    jmp .done
+
+.tcp:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    mov rdi, r13
+    call tcp_command
+    jmp .done
+
+.nslookup:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    cmp byte [r13], 0
+    je .missing_arg
+
+    mov rdi, r13
+    call dns_start
+
+    test eax, eax
+    jz .dns_failed
+
+    mov rsi, msg_dns_started
+    call commands_print
+    jmp .done
+
+.wf:
+    cmp byte [shell_testing_mode], 1
+    jne .testing_required
+
+    cmp byte [r13], 0
+    je .missing_arg
+
+    mov rdi, r13
+    call wf_start
+
+    test eax, eax
+    jz .wf_failed
+
+    mov rsi, msg_wf_started
+    call commands_print
+    jmp .done
+
+.dns_failed:
+    mov rsi, msg_dns_failed
+    call commands_error
+    jmp .done
+
+.wf_failed:
+    mov rsi, msg_wf_failed
+    call commands_error
+    jmp .done
+
+.testing_required:
+    mov rsi, msg_testing_required
+    call commands_error
+    jmp .done
+
 .missing_arg:
     mov rsi, msg_missing
     call commands_error
@@ -360,7 +566,6 @@ commands_dispatch:
 .create_failed:
     mov rsi, msg_create_failed
     call commands_error
-    jmp .done
 
 .done:
     pop r14
@@ -395,6 +600,7 @@ commands_hex:
     push rcx
     push rdx
     push rbx
+    push r8
 
     mov byte [shell_color], 0x0E
     mov rbx, rax
@@ -406,7 +612,6 @@ commands_hex:
 
     lea r8, [cmd_hex_digits]
     mov al, [r8 + rdx]
-
     call shell_putc
 
     shl rbx, 4
@@ -415,6 +620,7 @@ commands_hex:
 
     call shell_newline
 
+    pop r8
     pop rbx
     pop rdx
     pop rcx
@@ -460,6 +666,33 @@ cmd_cat:
 cmd_type:
     db "type", 0
 
+cmd_net:
+    db "net", 0
+
+cmd_wlan:
+    db "wlan", 0
+
+cmd_ping:
+    db "ping", 0
+
+cmd_arp:
+    db "arp", 0
+
+cmd_tcp:
+    db "tcp", 0
+
+cmd_nslookup:
+    db "nslookup", 0
+
+cmd_wf:
+    db "wf", 0
+
+cmd_show:
+    db "show", 0
+
+cmd_home:
+    db "~", 0
+
 cmd_root:
     db "/", 0
 
@@ -474,6 +707,21 @@ msg_help2:
 
 msg_help3:
     db "type <file> opens the text editor.", 0
+
+msg_help_network:
+    db "Testing: cd ~ | net devices | net dhcp | net ip", 0
+
+msg_help_ping:
+    db "Testing: arp show | ping <gateway-ip>", 0
+
+msg_help_tcp:
+    db "Testing: tcp connect <ip> [port] | tcp fetch <ip> <host>", 0
+
+msg_help_web:
+    db "Testing: nslookup <host> | wf <host>", 0
+
+msg_help_wifi:
+    db "Testing: wlan status | devices | scan | connect | disconnect", 0
 
 msg_version:
     db "A5TR0 KERNEL / SHELL ALPHA", 0
@@ -514,6 +762,9 @@ msg_created:
 msg_directory_changed:
     db "Directory changed.", 0
 
+msg_testing_enabled:
+    db "Testing terminal enabled.", 0
+
 msg_empty:
     db "Directory is empty.", 0
 
@@ -525,3 +776,36 @@ msg_editor_prompt:
 
 msg_saved:
     db "File saved.", 0
+
+msg_testing_required:
+    db "Enter the testing terminal with cd ~.", 0
+
+msg_ping_started:
+    db "Resolving gateway MAC and sending ICMP request.", 0
+
+msg_ping_failed:
+    db "Ping failed. Only the configured gateway is supported.", 0
+
+msg_arp_found:
+    db "Gateway ARP entry resolved.", 0
+
+msg_arp_mac:
+    db "Gateway MAC: ", 0
+
+msg_arp_empty:
+    db "No resolved ARP entry.", 0
+
+msg_arp_usage:
+    db "Usage: arp show", 0
+
+msg_dns_started:
+    db "DNS lookup started.", 0
+
+msg_dns_failed:
+    db "Could not start DNS lookup.", 0
+
+msg_wf_started:
+    db "Resolving hostname for HTTP fetch...", 0
+
+msg_wf_failed:
+    db "Could not start web fetch.", 0

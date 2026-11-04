@@ -1,4 +1,3 @@
-
 bits 64
 
 %macro CPU_EXCEPTION_NOERR 1
@@ -51,13 +50,7 @@ cpu_exception_common:
     cli
     cld
 
-    mov rdi, [rsp]
-    mov rsi, [rsp + 8]
-    mov rdx, [rsp + 16]
-
-    and rsp, -16
-
-    call debug_exception_report
+    mov word [0xB8F10], 0x4F58
 
 .halt:
     hlt

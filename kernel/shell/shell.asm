@@ -6,10 +6,11 @@ shell_initialize:
     mov dword [shell_cursor], 0
     mov byte [shell_color], 0x0F
     mov qword [shell_command_count], 0
+    mov byte [shell_testing_mode], 0
 
     call keyboard_initialize
     call fs_initialize
-
+    call network_initialize
     ret
 
 shell_clear:
@@ -20,7 +21,7 @@ shell_clear:
     mov rdi, VGA_BASE
     mov eax, 0x07200720
     mov ecx, 1000
-
+    cld
     rep stosd
 
     mov dword [shell_cursor], 0
@@ -39,12 +40,11 @@ shell_scroll:
     mov rsi, VGA_BASE + 160
     mov rdi, VGA_BASE
     mov ecx, 960
-
+    cld
     rep movsd
 
     mov eax, 0x07200720
     mov ecx, 40
-
     rep stosd
 
     mov dword [shell_cursor], 1920
@@ -64,8 +64,10 @@ shell_putc:
     cmp al, 10
     je .newline
 
-    mov edx, [shell_cursor]
+    cmp al, 13
+    je .done
 
+    mov edx, [shell_cursor]
     cmp edx, 2000
     jb .write
 
@@ -109,6 +111,8 @@ shell_puts:
     push rax
     push rsi
 
+    cld
+
 .next:
     lodsb
     test al, al
@@ -140,7 +144,16 @@ shell_readline:
     xor r13d, r13d
 
 .read:
-    call keyboard_wait
+    call pcnet_poll
+    call icmp_poll
+    call dns_poll
+    call tcp_poll
+    call wf_poll
+    call wifi_manager_poll
+
+    call keyboard_poll
+    test al, al
+    jz .idle
 
     cmp al, 13
     je .enter
@@ -151,6 +164,9 @@ shell_readline:
     cmp al, 32
     jb .read
 
+    cmp al, 126
+    ja .read
+
     cmp r13d, SHELL_INPUT_LIMIT
     jae .read
 
@@ -158,6 +174,10 @@ shell_readline:
     inc r13
 
     call shell_putc
+    jmp .read
+
+.idle:
+    pause
     jmp .read
 
 .backspace:
@@ -173,13 +193,12 @@ shell_readline:
 
     mov edx, [shell_cursor]
     lea rdi, [VGA_BASE + rdx * 2]
-
     mov word [rdi], 0x0720
+
     jmp .read
 
 .enter:
     mov byte [r12 + r13], 0
-
     call shell_newline
 
     mov rax, r13
@@ -190,8 +209,12 @@ shell_readline:
     ret
 
 shell_execute:
+    push rdi
+
     inc qword [shell_command_count]
     call commands_dispatch
+
+    pop rdi
     ret
 
 shell_run:
@@ -230,6 +253,11 @@ shell_cursor:
 
 shell_color:
     db 0x0F
+
+shell_testing_mode:
+    db 0
+
+align 8
 
 shell_command_count:
     dq 0
